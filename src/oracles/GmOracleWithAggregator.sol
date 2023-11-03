@@ -6,6 +6,7 @@ import "interfaces/IAggregator.sol";
 import "BoringSolidity/interfaces/IERC20.sol";
 import "BoringSolidity/libraries/BoringERC20.sol";
 import {IGmxV2Market, IGmxV2Price, IGmxReader} from "interfaces/IGmxV2.sol";
+import "forge-std/Test.sol";
 
 contract GmOracleWithAggregator is IOracle {
     using BoringERC20 for IERC20;
@@ -63,6 +64,8 @@ contract GmOracleWithAggregator is IOracle {
             PNL_TYPE,
             false
         );
+
+        console.log("GM Price", uint256(price));
 
         // GMX uses an internal precision of 1e30
         lpPrice = (1e18 * 1e30) / uint256(price);

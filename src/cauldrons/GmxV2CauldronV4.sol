@@ -9,6 +9,7 @@ import {CauldronV4} from "cauldrons/CauldronV4.sol";
 import {BoringMath, BoringMath128} from "libraries/compat/BoringMath.sol";
 import {ICauldronV4GmxV2} from "interfaces/ICauldronV4GmxV2.sol";
 import {GmRouterOrderParams, IGmRouterOrder, IGmCauldronOrderAgent} from "periphery/GmxV2CauldronOrderAgent.sol";
+import "forge-std/Test.sol";
 
 /// @notice Cauldron with both whitelisting and checkpointing token rewards on add/remove/liquidate collateral
 contract GmxV2CauldronV4 is CauldronV4 {
@@ -140,11 +141,16 @@ contract GmxV2CauldronV4 is CauldronV4 {
                 borrowPart = maxBorrowParts[i] > availableBorrowPart ? availableBorrowPart : maxBorrowParts[i];
 
                 uint256 borrowAmount = totalBorrow.toElastic(borrowPart, false);
+
+                console.log("borrow amount:", borrowAmount);
+
                 uint256 collateralShare = bentoBoxTotals.toBase(
                     borrowAmount.mul(LIQUIDATION_MULTIPLIER).mul(_exchangeRate) /
                         (LIQUIDATION_MULTIPLIER_PRECISION * EXCHANGE_RATE_PRECISION),
                     false
                 );
+                console.log("liq exchange rate: ", _exchangeRate);
+                console.log("Pay back GM:", collateralShare);
 
                 _beforeUserLiquidated(user, borrowPart, borrowAmount, collateralShare);
                 userBorrowPart[user] = availableBorrowPart.sub(borrowPart);

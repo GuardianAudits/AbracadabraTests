@@ -12,6 +12,7 @@ import {IOracle} from "interfaces/IOracle.sol";
 import {IGmxV2Deposit, IGmxV2WithdrawalCallbackReceiver, IGmxV2Withdrawal, IGmxV2EventUtils, IGmxV2Market, IGmxDataStore, IGmxV2DepositCallbackReceiver, IGmxReader, IGmxV2DepositHandler, IGmxV2WithdrawalHandler, IGmxV2ExchangeRouter} from "interfaces/IGmxV2.sol";
 import {IWETH} from "interfaces/IWETH.sol";
 import {BoringERC20} from "BoringSolidity/libraries/BoringERC20.sol";
+import "forge-std/Test.sol";
 
 struct GmRouterOrderParams {
     address inputToken;
@@ -193,6 +194,9 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
     function sendValueInCollateral(address recipient, uint256 amountMarketToken) public onlyCauldron {
         (uint256 shortExchangeRate, uint256 marketExchangeRate) = getExchangeRates();
 
+        console.log("USDC PRICE: ", shortExchangeRate);
+        console.log("GM EXCHANGE: ", marketExchangeRate);
+
         /// @dev For oracleDecimalScale = 1e14:
         /// (18 decimals + 14 decimals) - (8 decimals + 18 decimals) = 6 decimals
         ///
@@ -205,6 +209,7 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
         /// (100_000e18 * 1e14) / (99700000 *  2e18) = ≈50150.45e6 USDC
         uint256 amountShortToken = (amountMarketToken * oracleDecimalScale) / (shortExchangeRate * marketExchangeRate);
 
+        console.log("amountShortToken", amountShortToken);
         shortToken.safeTransfer(address(degenBox), amountShortToken);
         degenBox.deposit(IERC20(shortToken), address(degenBox), recipient, amountShortToken, 0);
     }
@@ -222,8 +227,11 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
         /// - 2e18 is how many GM tokens 1 USD can buy
         ///  (100_000e6 * 99700000 * 2e18) / 1e14 = ≈199400e18 GM tokens
         if (depositType) {
+            console.log("short exchange: ", shortExchangeRate);
             uint256 marketTokenFromValue = (inputAmount * shortExchangeRate * marketExchangeRate) / oracleDecimalScale;
+            console.log("market token from value: ", marketTokenFromValue);
             result = minOut < marketTokenFromValue ? minOut : marketTokenFromValue;
+            console.log("result: ", result);
         } else {
             uint256 marketTokenFromValue = ((minOut + minOutLong) * shortExchangeRate * marketExchangeRate) / oracleDecimalScale;
             result = inputAmount < marketTokenFromValue ? inputAmount : marketTokenFromValue;

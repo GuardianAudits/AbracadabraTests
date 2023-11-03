@@ -20,6 +20,7 @@ import "libraries/compat/BoringMath.sol";
 import "interfaces/IOracle.sol";
 import "interfaces/ISwapperV2.sol";
 import "interfaces/IBentoBoxV1.sol";
+import "forge-std/Test.sol";
 
 // solhint-disable avoid-low-level-calls
 // solhint-disable no-inline-assembly
@@ -140,6 +141,7 @@ contract CauldronV4 is BoringOwnable, IMasterContract {
         require(address(collateral) == address(0), "Cauldron: already initialized");
         (collateral, oracle, oracleData, accrueInfo.INTEREST_PER_SECOND, LIQUIDATION_MULTIPLIER, COLLATERIZATION_RATE, BORROW_OPENING_FEE) = abi.decode(data, (IERC20, IOracle, bytes, uint64, uint256, uint256, uint256));
         borrowLimit = BorrowCap(type(uint128).max, type(uint128).max);
+        console.log(">>>>> RATE:", COLLATERIZATION_RATE);
         require(address(collateral) != address(0), "Cauldron: bad pair");
 
         magicInternetMoney.approve(address(bentoBox), type(uint256).max);
