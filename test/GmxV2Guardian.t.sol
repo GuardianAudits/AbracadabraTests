@@ -283,7 +283,7 @@ contract GmxV2Test is BaseTest {
         assertTrue(orderBal < 1370 * 1e6);
     }
 
-    function test_multipleWithdrawsBeforeClosing() public {
+    function test_cannotCreateWithdrawMultipleOrders() public {
         uint8[] memory actions = new uint8[](1);
         uint256[] memory values = new uint256[](1);
         bytes[] memory datas = new bytes[](1);
@@ -302,6 +302,7 @@ contract GmxV2Test is BaseTest {
 
         datas[0] = abi.encode(gmETH, false, 1 ether, 1 ether, type(uint128).max, 0);
         gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+
         vm.expectRevert(bytes4(keccak256("ErrOrderAlreadyExists()")));
         datas[0] = abi.encode(gmETH, false, 0.5 ether, 0.5 ether, type(uint128).max, 0);
         gmETHDeployment.cauldron.cook{value: 0.5 ether}(actions, values, datas);
