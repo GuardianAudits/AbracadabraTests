@@ -283,6 +283,82 @@ contract GmxV2Test is BaseTest {
         assertTrue(orderBal < 1370 * 1e6);
     }
 
+    function test_multipleWithdrawsBeforeClosing() public {
+        uint8[] memory actions = new uint8[](1);
+        uint256[] memory values = new uint256[](1);
+        bytes[] memory datas = new bytes[](1);
+        actions[0] = 101;
+        values[0] = 1 ether;
+
+        pushPrank(alice);
+        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+        deal(usdc, address(box), 1 ether);
+
+        pushPrank(GM_ETH_WHALE);
+        gmETH.safeTransfer(address(box), 1 ether);
+        box.deposit(IERC20(gmETH), address(box), address(orderAgent), 1 ether, 0);
+        popPrank();
+
+        datas[0] = abi.encode(gmETH, false, 1 ether, 1 ether, type(uint128).max, 0);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        vm.expectRevert(bytes4(keccak256("ErrOrderAlreadyExists()")));
+        datas[0] = abi.encode(gmETH, false, 0.5 ether, 0.5 ether, type(uint128).max, 0);
+        gmETHDeployment.cauldron.cook{value: 0.5 ether}(actions, values, datas);
+    }
+
+    function test_ActionCallWhileBlacklisted() public {
+        uint256 usdcAmount = 5_000e6;
+
+        deal(usdc, address(alice), usdcAmount);
+        vm.prank(alice);
+        IERC20(usdc).approve(address(box), usdcAmount);
+
+        uint8 numActions = 2;
+        uint8 i;
+        uint8[] memory actions = new uint8[](numActions);
+        uint256[] memory values = new uint256[](numActions);
+        bytes[] memory datas = new bytes[](numActions);
+
+        {
+        pushPrank(alice);
+
+        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+        // Bento Deposit
+        actions[i] = 20;
+        datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+
+        // Create Order
+        actions[i] = 101;
+        values[i] = 1 ether;
+        datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        }
+
+        IGmRouterOrder order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
+
+        bytes memory callData = abi.encode(
+            IGmRouterOrder.withdrawFromOrder.selector,
+            address(usdc),
+            alice,
+            usdcAmount / 2, 
+            false
+        );
+
+        uint8[] memory callActions = new uint8[](1);
+        uint256[] memory callValues = new uint256[](1);
+        bytes[] memory callDatas = new bytes[](1);
+
+        callActions[0] = 30;
+        callValues[0] = 0;
+        callDatas[0] = abi.encode(address(order), callData, false, false, uint8(0));
+
+        vm.expectRevert(("Cauldron: can't call"));
+        gmETHDeployment.cauldron.cook{value: 0 ether}(callActions, callValues, callDatas);
+        popPrank();
+    }
 
     function _liquidate(address cauldron, address account, uint256 borrowPart) internal {
         address[] memory users = new address[](1);
