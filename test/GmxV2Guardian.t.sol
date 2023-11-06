@@ -344,28 +344,36 @@ contract GmxV2Test is BaseTest {
 
         assertEq(usdc.balanceOf(address(box)), 0);
 
-        uint8[] memory witdrawActions = new uint8[](1);
-        uint256[] memory witdrawValues = new uint256[](1);
-        bytes[] memory witdrawDatas = new bytes[](1);
+        uint8[] memory withdrawActions = new uint8[](1);
+        uint256[] memory withdrawValues = new uint256[](1);
+        bytes[] memory withdrawDatas = new bytes[](1);
 
-        witdrawActions[0] = 9;
-        witdrawValues[0] = 1 ether;
+        withdrawActions[0] = 9;
+        withdrawValues[0] = 1 ether;
 
         // Withdraw #1
-        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
-        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+        withdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(withdrawActions, withdrawValues, withdrawDatas);
+
+        assertEq(usdc.balanceOf(address(box)), 1250000000);
+        assertEq(box.balanceOf(IERC20(usdc), alice), 1250000000);
 
         // Withdraw #2
-        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
-        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+        withdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(withdrawActions, withdrawValues, withdrawDatas);
+
+        assertEq(usdc.balanceOf(address(box)), 2500000000);
+        assertEq(box.balanceOf(IERC20(usdc), alice),2500000000);
 
         // Withdraw #3
-        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/2, true);
-        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+        withdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/2, true);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(withdrawActions, withdrawValues, withdrawDatas);
 
         order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
         assertEq(address(order), 0x0000000000000000000000000000000000000000);
         assertEq(usdc.balanceOf(address(box)), 5000000000);
+        
+        assertEq(box.balanceOf(IERC20(usdc), alice),5000000000);
     }
 
     function test_CannotCreateOrderWithLongToken() public {
@@ -537,10 +545,11 @@ contract GmxV2Test is BaseTest {
         uint256 orderBal = IERC20(usdc).balanceOf(aliceOrder);
 
         assertEq(orderBal, 5000e6);
+        assertTrue(gmETHDeployment.cauldron.isSolvent(alice));
     }
 
 
-   function test_InsolvantWithdrawLiquidated() public {
+   function test_InsolventWithdrawLiquidated() public {
         uint256 usdcAmount = 5_000e6;
 
         deal(usdc, address(alice), usdcAmount);
@@ -554,20 +563,20 @@ contract GmxV2Test is BaseTest {
         bytes[] memory datas = new bytes[](numActions);
 
         {
-        pushPrank(alice);
+            pushPrank(alice);
 
-        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+            box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
 
-        // Bento Deposit
-        actions[i] = 20;
-        datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+            // Bento Deposit
+            actions[i] = 20;
+            datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
 
-        // Create Order
-        actions[i] = 101;
-        values[i] = 1 ether;
-        datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+            // Create Order
+            actions[i] = 101;
+            values[i] = 1 ether;
+            datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
 
-        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+            gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
         }
         
         IGmRouterOrder order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
@@ -578,15 +587,15 @@ contract GmxV2Test is BaseTest {
 
 
 
-        uint8[] memory witdrawActions = new uint8[](1);
-        uint256[] memory witdrawValues = new uint256[](1);
-        bytes[] memory witdrawDatas = new bytes[](1);
+        uint8[] memory withdrawActions = new uint8[](1);
+        uint256[] memory withdrawValues = new uint256[](1);
+        bytes[] memory withdrawDatas = new bytes[](1);
 
-        witdrawActions[0] = 9;
-        witdrawValues[0] = 1 ether;
+        withdrawActions[0] = 9;
+        withdrawValues[0] = 1 ether;
 
-        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
-        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+        withdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(withdrawActions, withdrawValues, withdrawDatas);
 
 
         {
@@ -628,7 +637,41 @@ contract GmxV2Test is BaseTest {
     }
 
    function test_DepositGetsCancelled() public {
-        //...
+        uint256 usdcAmount = 5_000e6;
+
+        deal(usdc, address(alice), usdcAmount);
+        vm.prank(alice);
+        IERC20(usdc).approve(address(box), usdcAmount);
+
+        uint8 numActions = 2;
+        uint8 i;
+        uint8[] memory actions = new uint8[](numActions);
+        uint256[] memory values = new uint256[](numActions);
+        bytes[] memory datas = new bytes[](numActions);
+
+        {
+        pushPrank(alice);
+
+        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+        // Bento Deposit
+        actions[i] = 20;
+        datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+
+        // Create Order
+        actions[i] = 101;
+        values[i] = 1 ether;
+        datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, type(uint96).max, type(uint96).max);
+
+        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        }
+        
+        address aliceOrder = address(ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice));
+
+        uint256 orderBal = IERC20(usdc).balanceOf(aliceOrder);
+
+        console.log(orderBal);
+
     }
 
 
