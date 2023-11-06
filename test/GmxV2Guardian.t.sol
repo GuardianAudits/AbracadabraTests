@@ -308,6 +308,330 @@ contract GmxV2Test is BaseTest {
         gmETHDeployment.cauldron.cook{value: 0.5 ether}(actions, values, datas);
     }
 
+    function test_MultipleWithdrawOrders() public {
+        uint256 usdcAmount = 5_000e6;
+
+        deal(usdc, address(alice), usdcAmount);
+        vm.prank(alice);
+        IERC20(usdc).approve(address(box), usdcAmount);
+
+        uint8 numActions = 2;
+        uint8 i;
+        uint8[] memory actions = new uint8[](numActions);
+        uint256[] memory values = new uint256[](numActions);
+        bytes[] memory datas = new bytes[](numActions);
+
+        {
+        pushPrank(alice);
+
+        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+        // Bento Deposit
+        actions[i] = 20;
+        datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+
+        // Create Order
+        actions[i] = 101;
+        values[i] = 1 ether;
+        datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        }
+        
+        IGmRouterOrder order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
+
+        deal(usdc, address(order), usdcAmount);
+
+        assertEq(usdc.balanceOf(address(box)), 0);
+
+        uint8[] memory witdrawActions = new uint8[](1);
+        uint256[] memory witdrawValues = new uint256[](1);
+        bytes[] memory witdrawDatas = new bytes[](1);
+
+        witdrawActions[0] = 9;
+        witdrawValues[0] = 1 ether;
+
+        // Withdraw #1
+        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+
+        // Withdraw #2
+        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+
+        // Withdraw #3
+        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/2, true);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+
+        order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
+        assertEq(address(order), 0x0000000000000000000000000000000000000000);
+        assertEq(usdc.balanceOf(address(box)), 5000000000);
+    }
+
+    function test_CannotCreateOrderWithLongToken() public {
+        uint256 wethAmount = 5e18;
+
+        deal(weth, address(alice), wethAmount*2);
+        vm.prank(alice);
+        IERC20(weth).approve(address(box), wethAmount);
+
+        uint8 numActions = 2;
+        uint8 i;
+        uint8[] memory actions = new uint8[](numActions);
+        uint256[] memory values = new uint256[](numActions);
+        bytes[] memory datas = new bytes[](numActions);
+
+        {
+        pushPrank(alice);
+
+        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+        // Bento Deposit
+        actions[i] = 20;
+        datas[i++] = abi.encode(weth, address(orderAgent), wethAmount, 0);
+
+        // Create Order
+        actions[i] = 101;
+        values[i] = 1 ether;
+        datas[i++] = abi.encode(weth, true, wethAmount, 1 ether, 5_000 ether, 0);
+
+        // Reverts due to the fact that we tried to create the order with a long token since long token
+        vm.expectRevert("ERC20: transfer amount exceeds balance");
+        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        }
+    }
+
+   function test_CannotCreateWithdrawalWithWrongToken() public {
+        uint256 usdcAmountOut = 5_000e6;
+        uint256 gmEthTokenOut = 5400 ether;
+
+        exchange.setTokens(ERC20(mim), ERC20(usdc));
+        deal(usdc, address(exchange), usdcAmountOut);
+
+        {
+            pushPrank(alice);
+            uint8 numActions = 5;
+            uint8 i;
+            uint8[] memory actions = new uint8[](numActions);
+            uint256[] memory values = new uint256[](numActions);
+            bytes[] memory datas = new bytes[](numActions);
+
+            box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+            gmETH.safeApprove(address(box), type(uint256).max);
+
+            // Bento Deposit
+            actions[i] = 20;
+            datas[i++] = abi.encode(gmETH, alice, 10_000 ether, 0);
+
+            // Add collateral
+            actions[i] = 10;
+            datas[i++] = abi.encode(-1, alice, false);
+
+            // Borrow
+            actions[i] = 5;
+            datas[i++] = abi.encode(5_000 ether, address(exchange));
+
+            // Swap MIM -> USDC
+            actions[i] = 30;
+            datas[i++] = abi.encode(
+                address(exchange),
+                abi.encodeWithSelector(ExchangeRouterMock.swapAndDepositToDegenBox.selector, address(box), address(orderAgent)),
+                false,
+                false,
+                uint8(1)
+            );
+
+            // Create Order
+            actions[i] = 101;
+            values[i] = 1 ether;
+            datas[i++] = abi.encode(usdc, true, usdcAmountOut, 1 ether, type(uint128).max, 0);
+
+            gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+            popPrank();
+        }
+
+        IGmRouterOrder order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
+        pushPrank(GM_ETH_WHALE);
+        gmETH.safeTransfer(address(order), gmEthTokenOut);
+
+        pushPrank(router.depositHandler());
+        _callAfterDepositExecution(IGmxV2DepositCallbackReceiver(address(order)));
+        popPrank();
+
+        popPrank();
+
+        {
+            pushPrank(alice);
+
+            uint256 userCollateralShare = gmETHDeployment.cauldron.userCollateralShare(alice);
+            uint256 amount = box.toAmount(IERC20(gmETH), userCollateralShare, false);
+
+            uint8 numActions = 2;
+            uint8 i;
+            uint8[] memory actions = new uint8[](numActions);
+            uint256[] memory values = new uint256[](numActions);
+            bytes[] memory datas = new bytes[](numActions);
+
+            actions[i] = 4;
+            datas[i++] = abi.encode(userCollateralShare, address(orderAgent));
+
+            actions[i] = 101;
+            values[i] = 1 ether;
+            
+            // Try to withdraw gmBTC instead of gmETH
+            datas[i++] = abi.encode(IERC20(gmBTC), false, amount, 1 ether, type(uint128).max, 0);
+
+            // Reverts with underflow due to alice having no gmBTC balance
+            vm.expectRevert("BoringMath: Underflow");
+            gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+            popPrank();
+        }
+    }
+   function test_CancelOrderWithActionCancelOrder() public {
+        uint256 usdcAmount = 5_000e6;
+
+        deal(usdc, address(alice), usdcAmount);
+        vm.prank(alice);
+        IERC20(usdc).approve(address(box), usdcAmount);
+
+        uint8 numActions = 2;
+        uint8 i;
+        uint8[] memory actions = new uint8[](numActions);
+        uint256[] memory values = new uint256[](numActions);
+        bytes[] memory datas = new bytes[](numActions);
+
+        {
+        pushPrank(alice);
+
+        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+        // Bento Deposit
+        actions[i] = 20;
+        datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+
+        // Create Order
+        actions[i] = 101;
+        values[i] = 1 ether;
+        datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        }
+        
+        IGmRouterOrder order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
+
+        uint8[] memory cancelActions = new uint8[](1);
+        uint256[] memory cancelValues = new uint256[](1);
+        bytes[] memory cancelDatas = new bytes[](1);
+
+        cancelActions[0] = 102;
+        cancelValues[0] = 1 ether;
+        cancelDatas[0] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        uint256 timeIncrease = 1200;
+        advanceBlocks(timeIncrease);
+
+        gmETHDeployment.cauldron.cook{value: 1 ether}(cancelActions, cancelValues, cancelDatas);
+
+        address aliceOrder = address(ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice));
+
+        uint256 orderBal = IERC20(usdc).balanceOf(aliceOrder);
+
+        assertEq(orderBal, 5000e6);
+    }
+
+
+   function test_InsolvantWithdrawLiquidated() public {
+        uint256 usdcAmount = 5_000e6;
+
+        deal(usdc, address(alice), usdcAmount);
+        vm.prank(alice);
+        IERC20(usdc).approve(address(box), usdcAmount);
+
+        uint8 numActions = 2;
+        uint8 i;
+        uint8[] memory actions = new uint8[](numActions);
+        uint256[] memory values = new uint256[](numActions);
+        bytes[] memory datas = new bytes[](numActions);
+
+        {
+        pushPrank(alice);
+
+        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+        // Bento Deposit
+        actions[i] = 20;
+        datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+
+        // Create Order
+        actions[i] = 101;
+        values[i] = 1 ether;
+        datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        }
+        
+        IGmRouterOrder order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
+
+        deal(usdc, address(order), usdcAmount);
+
+        assertEq(usdc.balanceOf(address(box)), 0);
+
+
+
+        uint8[] memory witdrawActions = new uint8[](1);
+        uint256[] memory witdrawValues = new uint256[](1);
+        bytes[] memory witdrawDatas = new bytes[](1);
+
+        witdrawActions[0] = 9;
+        witdrawValues[0] = 1 ether;
+
+        witdrawDatas[0] = abi.encode(usdc, alice, usdcAmount/4, false);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(witdrawActions, witdrawValues, witdrawDatas);
+
+
+        {
+            pushPrank(alice);
+            uint8 numActions = 1;
+            uint8 i;
+            uint8[] memory actions = new uint8[](numActions);
+            uint256[] memory values = new uint256[](numActions);
+            bytes[] memory datas = new bytes[](numActions);
+
+            actions[i] = 5;
+            datas[i++] = abi.encode(3_430 ether, alice);
+
+            gmETHDeployment.cauldron.cook(actions, values, datas);
+            popPrank();
+        }
+
+        IMockOracle(address(gmETHDeployment.oracle)).setMockPrice(1176 * 1e15);
+
+        pushPrank(MIM_WHALE);
+        box.setMasterContractApproval(MIM_WHALE, masterContract, true, 0, 0, 0);
+        mim.safeTransfer(address(box), 100_000e18);
+        box.deposit(IERC20(mim), address(box), MIM_WHALE, 100_000e18, 0);
+
+        uint256 aliceBorrowPart = gmETHDeployment.cauldron.userBorrowPart(alice);
+
+        uint256 timeIncrease = 1200;
+        advanceBlocks(timeIncrease);
+
+        _liquidate(address(gmETHDeployment.cauldron), alice, aliceBorrowPart);
+    }
+
+   function test_MaxLeverageDeposit() public {
+        //...
+    }
+
+   function test_WithdrawalGetsCancelled() public {
+        //...
+    }
+
+   function test_DepositGetsCancelled() public {
+        //...
+    }
+
+
     function test_ActionCallWhileBlacklisted() public {
         uint256 usdcAmount = 5_000e6;
 
