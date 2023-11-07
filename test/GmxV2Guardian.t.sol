@@ -585,8 +585,6 @@ contract GmxV2Test is BaseTest {
 
         assertEq(usdc.balanceOf(address(box)), 0);
 
-
-
         uint8[] memory withdrawActions = new uint8[](1);
         uint256[] memory withdrawValues = new uint256[](1);
         bytes[] memory withdrawDatas = new bytes[](1);
@@ -629,11 +627,135 @@ contract GmxV2Test is BaseTest {
     }
 
    function test_MaxLeverageDeposit() public {
-        //...
+        uint256 usdcAmount = 5_000e6;
+
+        deal(usdc, address(alice), usdcAmount);
+        vm.prank(alice);
+        IERC20(usdc).approve(address(box), usdcAmount);
+
+        {
+            pushPrank(alice);
+            uint8 numActions = 2;
+            uint8 i;
+            uint8[] memory actions = new uint8[](numActions);
+            uint256[] memory values = new uint256[](numActions);
+            bytes[] memory datas = new bytes[](numActions);
+
+            box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+            // Bento Deposit
+            actions[i] = 20;
+            datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+
+            // Create Order
+            actions[i] = 101;
+            values[i] = 1 ether;
+            datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+            gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+            popPrank();
+        }
+
+        {
+            pushPrank(alice);
+            uint8 numActions = 1;
+            uint8 i;
+            uint8[] memory actions = new uint8[](numActions);
+            uint256[] memory values = new uint256[](numActions);
+            bytes[] memory datas = new bytes[](numActions);
+
+            // Borrow
+            actions[i] = 5;
+            datas[i++] = abi.encode(3_436 ether, alice);
+
+            gmETHDeployment.cauldron.cook(actions, values, datas);
+            popPrank();
+        }
+
+        assertTrue(gmETHDeployment.cauldron.isSolvent(alice));
+
+        uint8[] memory cancelActions = new uint8[](1);
+        uint256[] memory cancelValues = new uint256[](1);
+        bytes[] memory cancelDatas = new bytes[](1);
+
+        cancelActions[0] = 102;
+        cancelValues[0] = 1 ether;
+        cancelDatas[0] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        uint256 timeIncrease = 1200;
+        advanceBlocks(timeIncrease);
+        
+        pushPrank(alice);
+
+        gmETHDeployment.cauldron.cook{value: 1 ether}(cancelActions, cancelValues, cancelDatas);
+
+        assertTrue(gmETHDeployment.cauldron.isSolvent(alice));
+
+        popPrank();
     }
 
    function test_WithdrawalGetsCancelled() public {
-        //...
+        uint256 usdcAmount = 5_000e6;
+
+        deal(usdc, address(alice), usdcAmount);
+        vm.prank(alice);
+        IERC20(usdc).approve(address(box), usdcAmount);
+
+        uint8 numActions = 2;
+        uint8 i;
+        uint8[] memory actions = new uint8[](numActions);
+        uint256[] memory values = new uint256[](numActions);
+        bytes[] memory datas = new bytes[](numActions);
+
+        {
+            pushPrank(alice);
+
+            box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+
+            // Bento Deposit
+            actions[i] = 20;
+            datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+
+            // Create Order
+            actions[i] = 101;
+            values[i] = 1 ether;
+            datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+            gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+        }
+        
+        IGmRouterOrder order = ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice);
+
+        deal(usdc, address(order), usdcAmount);
+
+        assertEq(usdc.balanceOf(address(box)), 0);
+
+        uint8[] memory withdrawActions = new uint8[](1);
+        uint256[] memory withdrawValues = new uint256[](1);
+        bytes[] memory withdrawDatas = new bytes[](1);
+
+        withdrawActions[0] = 9;
+        withdrawValues[0] = 1 ether;
+
+        withdrawDatas[0] = abi.encode(usdc, alice, usdcAmount, false);
+        gmETHDeployment.cauldron.cook{value: 1 ether}(withdrawActions, withdrawValues, withdrawDatas);
+
+
+        uint8[] memory cancelActions = new uint8[](1);
+        uint256[] memory cancelValues = new uint256[](1);
+        bytes[] memory cancelDatas = new bytes[](1);
+
+        cancelActions[0] = 102;
+        cancelValues[0] = 1 ether;
+        cancelDatas[0] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        uint256 timeIncrease = 1200;
+        advanceBlocks(timeIncrease);
+
+        // Order gets cancelled
+        gmETHDeployment.cauldron.cook{value: 1 ether}(cancelActions, cancelValues, cancelDatas);
+    
+        assertEq(box.balanceOf(IERC20(usdc), alice), 5000000000);
     }
 
    function test_DepositGetsCancelled() public {
@@ -650,28 +772,40 @@ contract GmxV2Test is BaseTest {
         bytes[] memory datas = new bytes[](numActions);
 
         {
-        pushPrank(alice);
+            pushPrank(alice);
 
-        box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
+            box.setMasterContractApproval(alice, masterContract, true, 0, 0, 0);
 
-        // Bento Deposit
-        actions[i] = 20;
-        datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
+            // Bento Deposit
+            actions[i] = 20;
+            datas[i++] = abi.encode(usdc, address(orderAgent), usdcAmount, 0);
 
-        // Create Order
-        actions[i] = 101;
-        values[i] = 1 ether;
-        datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, type(uint96).max, type(uint96).max);
+            // Create Order
+            actions[i] = 101;
+            values[i] = 1 ether;
+            datas[i++] = abi.encode(usdc, true, usdcAmount, 1 ether, type(uint96).max, type(uint96).max);
 
-        gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
+            gmETHDeployment.cauldron.cook{value: 1 ether}(actions, values, datas);
         }
         
+        uint8[] memory cancelActions = new uint8[](1);
+        uint256[] memory cancelValues = new uint256[](1);
+        bytes[] memory cancelDatas = new bytes[](1);
+
+        cancelActions[0] = 102;
+        cancelValues[0] = 1 ether;
+        cancelDatas[0] = abi.encode(usdc, true, usdcAmount, 1 ether, 5_000 ether, 0);
+
+        uint256 timeIncrease = 1200;
+        advanceBlocks(timeIncrease);
+
+        // Order gets cancelled
+        gmETHDeployment.cauldron.cook{value: 1 ether}(cancelActions, cancelValues, cancelDatas);
+
         address aliceOrder = address(ICauldronV4GmxV2(address(gmETHDeployment.cauldron)).orders(alice));
 
         uint256 orderBal = IERC20(usdc).balanceOf(aliceOrder);
-
-        console.log(orderBal);
-
+        assertEq(orderBal, 5000000000);
     }
 
 
