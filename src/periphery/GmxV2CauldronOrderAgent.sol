@@ -63,6 +63,8 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
     error ErrMinOutTooLarge();
     error ErrUnauthorized();
     error ErrWrongUser();
+    error ExecuteDepositsDisabled();
+    error ExecuteWithdrawalsDisabled();
 
     event LogRefundWETH(address indexed user, uint256 amount);
 
@@ -80,6 +82,8 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
     address public immutable SYNTHETICS_ROUTER;
     IWETH public immutable WETH;
     IBentoBoxV1 public immutable degenBox;
+    bytes32 public constant EXECUTE_DEPOSIT_FEATURE_DISABLED = keccak256(abi.encode("EXECUTE_DEPOSIT_FEATURE_DISABLED"));
+    bytes32 public constant EXECUTE_WITHDRAWAL_FEATURE_DISABLED = keccak256(abi.encode("EXECUTE_WITHDRAWAL_FEATURE_DISABLED"));
 
     address public cauldron;
     address public user;
@@ -132,6 +136,20 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
         WETH = _weth;
     }
 
+    function isDepositExecutionDisabled() public view returns (bool) {
+        bytes32 depositExecutionDisabledKey = keccak256(
+            abi.encode(EXECUTE_DEPOSIT_FEATURE_DISABLED, GMX_ROUTER.depositHandler())
+        );
+        return DATASTORE.getBool(depositExecutionDisabledKey);
+    }
+
+    function isWithdrawalExecutionDisabled() public view returns (bool) {
+        bytes32 withdrawalExecutionDisabledKey = keccak256(
+            abi.encode(EXECUTE_WITHDRAWAL_FEATURE_DISABLED, GMX_ROUTER.withdrawalHandler())
+        );
+        return DATASTORE.getBool(withdrawalExecutionDisabledKey);
+    }
+
     function init(address _cauldron, address _user, GmRouterOrderParams memory params) external payable {
         if (cauldron != address(0)) {
             revert ErrAlreadyInitialized();
@@ -159,6 +177,7 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
         oracleDecimalScale = uint128(10 ** (orderAgent.oracles(shortToken).decimals() + IERC20(shortToken).safeDecimals()));
 
         if (depositType) {
+            if (isDepositExecutionDisabled()) revert ExecuteDepositsDisabled();
             shortToken.safeApprove(address(SYNTHETICS_ROUTER), params.inputAmount);
             orderKey = _createDepositOrder(
                 market,
@@ -169,6 +188,7 @@ contract GmxV2CauldronRouterOrder is IGmRouterOrder, IGmxV2DepositCallbackReceiv
                 params.executionFee
             );
         } else {
+            if (isWithdrawalExecutionDisabled()) revert ExecuteWithdrawalsDisabled();
             market.safeApprove(address(SYNTHETICS_ROUTER), params.inputAmount);
             orderKey = _createWithdrawalOrder(params.inputAmount, params.minOutput, params.minOutLong, params.executionFee);
         }
